@@ -1,0 +1,9 @@
+# Telegram bot kütüphanesi (v20+ öncelikli, v13 fallback)
+python-telegram-bot>=20.0,<21.0
+
+# HTTP istekleri için
+aiohttp>=3.8.0,<4.0.0
+requests>=2.25.0,<3.0.0
+
+# Diğer bağımlılıklar
+sqlite3
