@@ -61,6 +61,7 @@ class ArbitrageBot:
                 'enableRateLimit': True,
                 'options': {
                     'defaultType': 'spot', # Ensure spot trading
+                    'createMarketBuyOrderRequiresPrice': False, # Düzeltme: Gate.io market buy için fiyat istemesin
                 },
             })
             
@@ -216,12 +217,15 @@ class ArbitrageBot:
             # 1. Gate.io'dan coin satın al
             # Hassasiyet için Decimal kullanmak önemli
             buy_amount_usdt_decimal = Decimal(str(self.trade_amount_usdt))
-            gate_price_decimal = Decimal(str(gate_price))
+            # Gate.io'da piyasa alış emri verirken, 'createMarketBuyOrderRequiresPrice: False' ayarlandığında,
+            # 'amount' argümanı harcanacak USDT miktarını (quote quantity) temsil eder.
             
-            # Satın alınacak coin miktarı (Gate.io'nun minimum miktar gereksinimlerini kontrol edin)
-            coin_to_buy_decimal = (buy_amount_usdt_decimal / gate_price_decimal).quantize(Decimal('0.000001'), rounding=ROUND_DOWN) # Örnek hassasiyet
-
-            if coin_to_buy_decimal <= 0:
+            # Satın alınacak coin miktarı Gate.io'nun kendisi tarafından belirlenecektir.
+            # Biz sadece ne kadar USDT harcayacağımızı söylüyoruz.
+            # Bu nedenle 'coin_to_buy_decimal' hesaplaması burada doğrudan kullanılmayacak.
+            # buy_order'dan dönen gerçek miktarı takip edeceğiz.
+            
+            if buy_amount_usdt_decimal <= 0:
                 await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=f"❌ **İşlem başarısız: Hesaplanan alış miktarı sıfır veya negatif!**\n\nCoin: {self.current_coin}\nUSDT Miktarı: ${self.trade_amount_usdt}",
@@ -229,9 +233,10 @@ class ArbitrageBot:
                 )
                 return False
 
+            # Düzeltme: Gate.io'da piyasa alış emri verirken harcanacak USDT miktarını gönderiyoruz.
             buy_order = await self.gate_exchange.create_market_buy_order(
                 f"{self.current_coin}/USDT", 
-                float(coin_to_buy_decimal)
+                float(buy_amount_usdt_decimal) # Düzeltme yapıldı: harcanacak USDT miktarı
             )
             
             logger.info(f"Gate.io alış emri: {buy_order}")
@@ -248,10 +253,14 @@ class ArbitrageBot:
             gate_balance = await self.gate_exchange.fetch_balance()
             actual_bought_coin = Decimal(str(gate_balance[self.current_coin]['free']))
 
-            if actual_bought_coin < coin_to_buy_decimal * Decimal('0.95'): # %5 sapma toleransı
+            # Başlangıçta hedeflenen coin miktarı (referans için)
+            # Bu, Gate.io'nun o anki satış fiyatına göre yaklaşık bir değerdir.
+            estimated_coin_to_buy = buy_amount_usdt_decimal / Decimal(str(gate_price))
+
+            if actual_bought_coin < estimated_coin_to_buy * Decimal('0.95'): # %5 sapma toleransı
                  await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
-                    text=f"⚠️ **Gate.io alış emri tam olarak gerçekleşmemiş olabilir!**\n\nHesaplanan Alış: `{coin_to_buy_decimal:.6f}`\nGerçekleşen Alış: `{actual_bought_coin:.6f}`",
+                    text=f"⚠️ **Gate.io alış emri tam olarak gerçekleşmemiş olabilir!**\n\nHesaplanan Yaklaşık Alış: `{estimated_coin_to_buy:.6f}`\nGerçekleşen Alış: `{actual_bought_coin:.6f}`",
                     parse_mode='Markdown'
                 )
                  # Burada iptal edip yeniden deneme veya hata mesajı mantığı eklenebilir.
@@ -761,7 +770,7 @@ async def main():
         application.add_handler(CommandHandler("coin", set_coin))
         application.add_handler(CommandHandler("set_amount", set_amount))
         application.add_handler(CommandHandler("set_profit", set_profit))
-        application.add_handler(CommandHandler("set_interval", set_interval)) # EKLENDİ
+        application.add_handler(CommandHandler("set_interval", set_interval)) 
         
         # Bot'u başlat
         await application.initialize()
